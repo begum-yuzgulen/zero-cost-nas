@@ -55,6 +55,9 @@ def load_all():
     from . import jacob_cov
     from . import plain
     from . import synflow
+    from . import lipschitz_frobenius
+    from . import lipschitz_spectralnorm
+    #from . import layerwise_lipschitz
 
 
 # TODO: should we do that by default?

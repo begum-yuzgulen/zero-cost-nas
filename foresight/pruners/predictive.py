@@ -103,14 +103,27 @@ def find_measures(net_orig,                  # neural network
             sum += torch.sum(arr[i])
         return sum.item()
 
+    def get_max_tensor(arr):
+        return max(arr, key=lambda x: torch.max(x).item())
+    
+    def get_min_tensor(arr):
+        return max(arr, key=lambda x: torch.min(x).item())
+    
+    def get_avg(arr):
+        return sum_arr(arr) / len(arr)
+    
+
     if measures_arr is None:
         measures_arr = find_measures_arrays(net_orig, dataloader, dataload_info, device, loss_fn=loss_fn, measure_names=measure_names)
 
     measures = {}
     for k,v in measures_arr.items():
-        if k=='jacob_cov':
+        if k=='jacob_cov' or k=='lipschitz' or k=='lipschitz_frobenius' or ("lipschitz" in k and "layerwise" not in k):
             measures[k] = v
         else:
             measures[k] = sum_arr(v)
-
+        if k=="synflow":
+            measures["synflow_max"] = get_max_tensor(v)
+            measures["synflow_min"] = get_min_tensor(v)
+            measures["synflow_avg"] = get_avg(v)
     return measures

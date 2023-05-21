@@ -20,6 +20,7 @@ import argparse
 from foresight.models import *
 from foresight.pruners import *
 from foresight.dataset import *
+import random
 from foresight.weight_initializers import init_net
 
 def get_num_classes(args):
@@ -29,7 +30,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Zero-cost Metrics for NAS-Bench-201')
     parser.add_argument('--api_loc', default='data/NAS-Bench-201-v1_0-e61699.pth',
                         type=str, help='path to API')
-    parser.add_argument('--outdir', default='./',
+    parser.add_argument('--outdir', default='./results_release/nasbench2/',
                         type=str, help='output directory')
     parser.add_argument('--init_w_type', type=str, default='none', help='weight initialization (before pruning) type [none, xavier, kaiming, zero]')
     parser.add_argument('--init_b_type', type=str, default='none', help='bias initialization (before pruning) type [none, xavier, kaiming, zero]')
@@ -60,14 +61,13 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed) 
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    
+
     train_loader, val_loader = get_cifar_dataloaders(args.batch_size, args.batch_size, args.dataset, args.num_data_workers)
 
     cached_res = []
     pre='cf' if 'cifar' in args.dataset else 'im'
     pfn=f'nb2_{pre}{get_num_classes(args)}_seed{args.seed}_dl{args.dataload}_dlinfo{args.dataload_info}_initw{args.init_w_type}_initb{args.init_b_type}.p'
     op = os.path.join(args.outdir,pfn)
-
     
     args.end = len(api) if args.end == 0 else args.end
 
@@ -77,7 +77,7 @@ if __name__ == '__main__':
         if i < args.start:
             continue
         if i >= args.end:
-            break 
+            break
 
         res = {'i':i, 'arch':arch_str}
 
@@ -96,7 +96,6 @@ if __name__ == '__main__':
                                             train_loader, 
                                             (args.dataload, args.dataload_info, get_num_classes(args)),
                                             args.device)
-
         res['logmeasures']= measures
 
         if not args.noacc:
