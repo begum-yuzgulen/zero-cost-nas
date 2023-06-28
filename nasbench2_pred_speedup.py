@@ -16,12 +16,13 @@
 import pickle
 import torch
 import argparse
-import time
 
 from foresight.models import *
 from foresight.pruners import *
 from foresight.dataset import *
-import random
+import time
+import concurrent.futures
+
 from foresight.weight_initializers import init_net
 
 def get_num_classes(args):
@@ -50,6 +51,38 @@ def parse_arguments():
     args.device = torch.device("cuda:"+str(args.gpu) if torch.cuda.is_available() else "cpu")
     return args
 
+def process_arch(i, arch_str, args):
+    res = {'i': i, 'arch': arch_str}
+
+    net = nasbench2.get_model_from_arch_str(arch_str, get_num_classes(args))
+    net.to(args.device)
+
+    init_net(net, args.init_w_type, args.init_b_type)
+
+    arch_str2 = nasbench2.get_arch_str_from_model(net)
+    if arch_str != arch_str2:
+        print(arch_str)
+        print(arch_str2)
+        raise ValueError
+
+    measures = predictive.find_measures(net, train_loader, (args.dataload, args.dataload_info, get_num_classes(args)), args.device)
+    res['logmeasures'] = measures
+
+    if not args.noacc:
+        info = api.get_more_info(i, 'cifar10-valid' if args.dataset == 'cifar10' else args.dataset, iepoch=None, hp='200', is_random=False)
+        trainacc = info['train-accuracy']
+        valacc = info['valid-accuracy']
+        testacc = info['test-accuracy']
+
+        res['trainacc'] = trainacc
+        res['valacc'] = valacc
+        res['testacc'] = testacc
+
+    return res
+
+# Define the number of concurrent workers/threads
+num_workers = 6
+
 if __name__ == '__main__':
     args = parse_arguments()
     
@@ -72,57 +105,42 @@ if __name__ == '__main__':
     
     args.end = len(api) if args.end == 0 else args.end
 
-    start_time = time.time()
-
     #loop over nasbench2 archs
-    for i, arch_str in enumerate(api):
+    start_time = time.time()
+    # Create a ThreadPoolExecutor with the desired number of workers
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = []
 
-        if i < args.start:
-            continue
-        if i >= args.end:
-            break
+        for i, arch_str in enumerate(api):
+            if i < args.start:
+                continue
+            if i >= args.end:
+                break
 
-        res = {'i':i, 'arch':arch_str}
+            # Submit each arch_str to the executor for processing
+            future = executor.submit(process_arch, i, arch_str, args)
+            futures.append(future)
 
-        net = nasbench2.get_model_from_arch_str(arch_str, get_num_classes(args))
-        net.to(args.device)
+        # Retrieve the results from the futures as they complete
+        for future in concurrent.futures.as_completed(futures):
+            res = future.result()
+            cached_res.append(res)
 
-        init_net(net, args.init_w_type, args.init_b_type)
-        
-        arch_str2 = nasbench2.get_arch_str_from_model(net)
-        if arch_str != arch_str2:
-            print(arch_str)
-            print(arch_str2)
-            raise ValueError
+            # Write to file
+            if len(cached_res) % args.write_freq == 0 or i == len(api)-1 or i == 10:
+                print(f'writing {len(cached_res)} results to {op}')
+                with open(op, 'ab') as pf:
+                    for cr in cached_res:
+                        pickle.dump(cr, pf)
+                cached_res = []
 
-        measures = predictive.find_measures(net, 
-                                            train_loader, 
-                                            (args.dataload, args.dataload_info, get_num_classes(args)),
-                                            args.device)
-        res['logmeasures']= measures
-
-        if not args.noacc:
-            info = api.get_more_info(i, 'cifar10-valid' if args.dataset=='cifar10' else args.dataset, iepoch=None, hp='200', is_random=False)
-
-            trainacc = info['train-accuracy']
-            valacc   = info['valid-accuracy']
-            testacc  = info['test-accuracy']
-        
-            res['trainacc']=trainacc
-            res['valacc']=valacc
-            res['testacc']=testacc
-        
-        #print(res)
-        cached_res.append(res)
-
-        #write to file
-        if i % args.write_freq == 0 or i == len(api)-1 or i == 10:
-            print(f'writing {len(cached_res)} results to {op}')
-            pf=open(op, 'ab')
+    # Write any remaining cached results to file
+    if len(cached_res) > 0:
+        print(f'writing {len(cached_res)} results to {op}')
+        with open(op, 'ab') as pf:
             for cr in cached_res:
                 pickle.dump(cr, pf)
-            pf.close()
-            cached_res = []
+
     end_time = time.time()
 
     # Calculate the elapsed time

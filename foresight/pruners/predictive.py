@@ -118,7 +118,7 @@ def find_measures(net_orig,                  # neural network
 
     measures = {}
     for k,v in measures_arr.items():
-        if k=='jacob_cov' or k=='lipschitz' or k=='lipschitz_frobenius' or ("lipschitz" in k and "layerwise" not in k):
+        if k=='jacob_cov' or k=='lipschitz' or k=='lipschitz_frobenius' or ("lipschitz" in k and "layerwise" not in k) or k=='frobenius' or k=='nuclear':
             measures[k] = v
         else:
             measures[k] = sum_arr(v)
